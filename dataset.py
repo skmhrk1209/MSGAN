@@ -2,8 +2,6 @@ import tensorflow as tf
 import numpy as np
 import pickle
 import os
-import glob
-from utils import Struct
 
 
 def linear_map(inputs, in_min, in_max, out_min, out_max):
