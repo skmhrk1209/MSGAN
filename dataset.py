@@ -43,6 +43,9 @@ def cifar10_input_fn(filenames, batch_size, num_epochs, shuffle):
     )
     dataset = dataset.prefetch(buffer_size=1)
 
-    iterator = dataset.make_one_shot_iterator()
+    iterator = dataset.make_initializable_iterator()
+
+    tf.add_to_collection(tf.GraphKeys.SAVEABLE_OBJECTS, tf.data.experimental.make_saveable_from_iterator(iterator))
+    tf.add_to_collection(tf.GraphKeys.TABLE_INITIALIZERS, iterator.initializer)
 
     return iterator.get_next()
