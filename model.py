@@ -20,7 +20,7 @@ class GAN(object):
         # -----------------------------------------------------------------------------------------
         # gradient-based mode-seeking loss
         latent_gradients = tf.gradients(fake_images, [fake_latents])[0]
-        mode_seeking_losses = 1.0 / (tf.reduce_sum(tf.square(latent_gradients), axis=[1]) + 1e-6)
+        mode_seeking_losses = 1 / (tf.reduce_sum(tf.square(latent_gradients), axis=[1]) + 1e-6)
         generator_losses += mode_seeking_losses * hyper_params.mode_seeking_loss_weight
         # -----------------------------------------------------------------------------------------
         discriminator_losses = tf.nn.softplus(-real_logits)
@@ -58,8 +58,8 @@ class GAN(object):
         self.fake_images = tf.transpose(fake_images, [0, 2, 3, 1])
         self.generator_loss = generator_loss
         self.discriminator_loss = discriminator_loss
-        self.discriminator_train_op = discriminator_train_op
         self.generator_train_op = generator_train_op
+        self.discriminator_train_op = discriminator_train_op
 
     def train(self, model_dir, total_steps, save_checkpoint_steps, save_summary_steps, log_tensor_steps, config):
 

@@ -58,7 +58,7 @@ with tf.Graph().as_default():
             discriminator_learning_rate=2e-4,
             discriminator_beta1=0.5,
             discriminator_beta2=0.999,
-            mode_seeking_loss_weight=1.0,
+            mode_seeking_loss_weight=0.1,
         )
     )
 
