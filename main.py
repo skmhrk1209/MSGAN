@@ -73,9 +73,9 @@ with tf.Graph().as_default():
         gan.train(
             model_dir=args.model_dir,
             total_steps=args.total_steps,
-            save_checkpoint_steps=10000,
-            save_summary_steps=1000,
-            log_tensor_steps=1000,
+            save_checkpoint_steps=1000,
+            save_summary_steps=100,
+            log_tensor_steps=100,
             config=config
         )
 

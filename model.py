@@ -1,7 +1,7 @@
 import tensorflow as tf
-import tensorflow_hub as hub
 import numpy as np
-from utils import Struct
+import skimage
+import pathlib
 
 
 class GAN(object):
@@ -9,37 +9,23 @@ class GAN(object):
     def __init__(self, generator, discriminator, real_input_fn, fake_input_fn, hyper_params):
         # =========================================================================================
         real_images, labels = real_input_fn()
-        fake_latents1 = fake_input_fn()
-        fake_latents2 = fake_input_fn()
+        fake_latents = fake_input_fn()
         training = tf.placeholder(tf.bool)
         # =========================================================================================
-        fake_images1 = generator(fake_latents1, labels, training)
-        fake_images2 = generator(fake_latents2, labels, training)
+        fake_images = generator(fake_latents, labels, training)
         # =========================================================================================
         real_logits = discriminator(real_images, labels, training)
-        fake_logits1 = discriminator(fake_images1, labels, training)
-        fake_logits2 = discriminator(fake_images2, labels, training)
+        fake_logits = discriminator(fake_images, labels, training)
         # =========================================================================================
-        generator_losses = tf.nn.softplus(-fake_logits1)
-        generator_losses += tf.nn.softplus(-fake_logits2)
-        generator_losses /= 2
+        generator_losses = tf.nn.softplus(-fake_logits)
         # -----------------------------------------------------------------------------------------
-        # distance-based mode-seeking loss
-        latent_distances = tf.reduce_sum(tf.abs(fake_latents1 - fake_latents2), axis=[1])
-        image_distances = tf.reduce_sum(tf.abs(fake_images1 - fake_images2), axis=[1, 2, 3])
-        mode_seeking_losses = latent_distances / (image_distances + 1e-6)
-        generator_losses += mode_seeking_losses * hyper_params.mode_seeking_loss_weight
-        '''
         # gradient-based mode-seeking loss
-        latent_gradients = tf.gradients(fake_images1, [fake_latents1])[0]
+        latent_gradients = tf.gradients(fake_images, [fake_latents])[0]
         mode_seeking_losses = 1.0 / (tf.reduce_sum(tf.square(latent_gradients), axis=[1]) + 1e-6)
         generator_losses += mode_seeking_losses * hyper_params.mode_seeking_loss_weight
-        '''
         # -----------------------------------------------------------------------------------------
-        discriminator_losses = tf.nn.softplus(fake_logits1)
-        discriminator_losses += tf.nn.softplus(fake_logits2)
-        discriminator_losses /= 2
-        discriminator_losses += tf.nn.softplus(-real_logits)
+        discriminator_losses = tf.nn.softplus(-real_logits)
+        discriminator_losses += tf.nn.softplus(fake_logits)
         # -----------------------------------------------------------------------------------------
         generator_loss = tf.reduce_mean(generator_losses)
         discriminator_loss = tf.reduce_mean(discriminator_losses)
@@ -70,8 +56,7 @@ class GAN(object):
         # =========================================================================================
         self.training = training
         self.real_images = tf.transpose(real_images, [0, 2, 3, 1])
-        self.fake_images1 = tf.transpose(fake_images1, [0, 2, 3, 1])
-        self.fake_images2 = tf.transpose(fake_images2, [0, 2, 3, 1])
+        self.fake_images = tf.transpose(fake_images, [0, 2, 3, 1])
         self.generator_loss = generator_loss
         self.discriminator_loss = discriminator_loss
         self.discriminator_train_op = discriminator_train_op
@@ -104,8 +89,7 @@ class GAN(object):
                     summary_op=tf.summary.merge(list(map(
                         lambda name_tensor: tf.summary.image(*name_tensor), dict(
                             real_images=self.real_images,
-                            fake_images1=self.fake_images1,
-                            fake_images2=self.fake_images2
+                            fake_images=self.fake_images
                         ).items()
                     )))
                 ),
@@ -137,33 +121,15 @@ class GAN(object):
                 session.run(self.discriminator_train_op, feed_dict={self.training: True})
                 session.run(self.generator_train_op, feed_dict={self.training: True})
 
-    def evaluate(self, model_dir, config):
+    def generate(self, model_dir, data_dir, config):
 
-        real_features = tf.contrib.gan.eval.run_inception(
-            images=tf.contrib.gan.eval.preprocess_image(self.real_images),
-            output_tensor="pool_3:0"
-        )
-        fake_features = tf.contrib.gan.eval.run_inception(
-            images=tf.contrib.gan.eval.preprocess_image(self.fake_images1),
-            output_tensor="pool_3:0"
-        )
+        real_data_dir = pathlib.Path(data_dir) / "reals"
+        fake_data_dir = pathlib.Path(data_dir) / "fakes"
 
-        def generator():
-            while True:
-                try:
-                    yield session.run(
-                        fetches=[real_features, fake_features],
-                        feed_dict={self.training: False}
-                    )
-                except tf.errors.OutOfRangeError:
-                    break
-
-        all_real_features = tf.placeholder(tf.float32)
-        all_fake_features = tf.placeholder(tf.float32)
-        frechet_inception_distance = tf.contrib.gan.eval.frechet_classifier_distance_from_activations(
-            real_activations=all_real_features,
-            generated_activations=all_fake_features
-        )
+        if not real_data_dir.exists():
+            real_data_dir.mkdir(parents=True, exist_ok=True)
+        if not fake_data_dir.exists():
+            fake_data_dir.mkdir(parents=True, exist_ok=True)
 
         with tf.train.SingularMonitoredSession(
             scaffold=tf.train.Scaffold(
@@ -177,11 +143,20 @@ class GAN(object):
             config=config
         ) as session:
 
-            frechet_inception_distance = session.run(
-                fetches=frechet_inception_distance,
-                feed_dict=dict(zip(
-                    [all_real_features, all_fake_features],
-                    map(np.concatenate, zip(*generator()))
-                ))
-            )
-            tf.logging.info("frechet_inception_distance: {}".format(frechet_inception_distance))
+            def unnormalize(inputs, mean, std):
+                return inputs * std + mean
+
+            def generator():
+
+                while True:
+                    try:
+                        yield session.run(
+                            fetches=[self.real_images, self.fake_images],
+                            feed_dict={self.training: False}
+                        )
+                    except tf.errors.OutOfRangeError:
+                        break
+
+            for i, (real_image, fake_image) in enumerate(zip(*map(np.concatenate, zip(*generator())))):
+                skimage.io.imsave(real_data_dir / "{}.jpg".format(i), unnormalize(real_image, 0.5, 0.5))
+                skimage.io.imsave(fake_data_dir / "{}.jpg".format(i), unnormalize(fake_image, 0.5, 0.5))
