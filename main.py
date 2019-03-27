@@ -9,7 +9,7 @@ import argparse
 import functools
 import glob
 from dataset import cifar10_input_fn
-from model1 import GAN
+from model import GAN
 from network import DCGAN
 from utils import Struct
 
@@ -45,8 +45,8 @@ with tf.Graph().as_default():
             cifar10_input_fn,
             filenames=glob.glob(args.filenames),
             batch_size=args.batch_size,
-            num_epochs=None,
-            shuffle=True,
+            num_epochs=args.num_epochs if args.train else 1,
+            shuffle=True if args.train else False,
         ),
         fake_input_fn=lambda: (
             tf.random_normal([args.batch_size, 100])

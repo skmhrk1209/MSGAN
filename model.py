@@ -1,8 +1,6 @@
 import tensorflow as tf
 import tensorflow_hub as hub
 import numpy as np
-import skimage
-import metrics
 from utils import Struct
 
 
@@ -13,7 +11,7 @@ class GAN(object):
         real_images, labels = real_input_fn()
         fake_latents1 = fake_input_fn()
         fake_latents2 = fake_input_fn()
-        training = tf.placeholder(tf.bool, [])
+        training = tf.placeholder(tf.bool)
         # =========================================================================================
         fake_images1 = generator(fake_latents1, labels, training)
         fake_images2 = generator(fake_latents2, labels, training)
@@ -31,6 +29,12 @@ class GAN(object):
         image_distances = tf.reduce_sum(tf.abs(fake_images1 - fake_images2), axis=[1, 2, 3])
         mode_seeking_losses = latent_distances / (image_distances + 1e-6)
         generator_losses += mode_seeking_losses * hyper_params.mode_seeking_loss_weight
+        '''
+        # gradient-based mode-seeking loss
+        latent_gradients = tf.gradients(fake_images1, [fake_latents1])[0]
+        mode_seeking_losses = 1.0 / (tf.reduce_sum(tf.square(latent_gradients), axis=[1]) + 1e-6)
+        generator_losses += mode_seeking_losses * hyper_params.mode_seeking_loss_weight
+        '''
         # -----------------------------------------------------------------------------------------
         discriminator_losses = tf.nn.softplus(fake_logits1)
         discriminator_losses += tf.nn.softplus(fake_logits2)
@@ -64,22 +68,14 @@ class GAN(object):
             var_list=discriminator_variables
         )
         # =========================================================================================
-        # tensors and operations used later
-        self.operations = Struct(
-            discriminator_train_op=discriminator_train_op,
-            generator_train_op=generator_train_op
-        )
-        self.placeholders = Struct(
-            training=training
-        )
-        self.tensors = Struct(
-            global_step=tf.train.get_global_step(),
-            real_images=tf.transpose(real_images, [0, 2, 3, 1]),
-            fake_images1=tf.transpose(fake_images1, [0, 2, 3, 1]),
-            fake_images2=tf.transpose(fake_images2, [0, 2, 3, 1]),
-            generator_loss=generator_loss,
-            discriminator_loss=discriminator_loss
-        )
+        self.training = training
+        self.real_images = tf.transpose(real_images, [0, 2, 3, 1])
+        self.fake_images1 = tf.transpose(fake_images1, [0, 2, 3, 1])
+        self.fake_images2 = tf.transpose(fake_images2, [0, 2, 3, 1])
+        self.generator_loss = generator_loss
+        self.discriminator_loss = discriminator_loss
+        self.discriminator_train_op = discriminator_train_op
+        self.generator_train_op = generator_train_op
 
     def train(self, model_dir, total_steps, save_checkpoint_steps, save_summary_steps, log_tensor_steps, config):
 
@@ -105,17 +101,30 @@ class GAN(object):
                 tf.train.SummarySaverHook(
                     output_dir=model_dir,
                     save_steps=save_summary_steps,
-                    summary_op=tf.summary.merge([
-                        tf.summary.scalar(name=name, tensor=tensor) if tensor.shape.ndims == 0 else
-                        tf.summary.image(name=name, tensor=tensor, max_outputs=4)
-                        for name, tensor in self.tensors.items()
-                    ])
+                    summary_op=tf.summary.merge(list(map(
+                        lambda name_tensor: tf.summary.image(*name_tensor), dict(
+                            real_images=self.real_images,
+                            fake_images1=self.fake_images1,
+                            fake_images2=self.fake_images2
+                        ).items()
+                    )))
+                ),
+                tf.train.SummarySaverHook(
+                    output_dir=model_dir,
+                    save_steps=save_summary_steps,
+                    summary_op=tf.summary.merge(list(map(
+                        lambda name_tensor: tf.summary.scalar(*name_tensor), dict(
+                            discriminator_loss=self.discriminator_loss,
+                            generator_loss=self.generator_loss
+                        ).items()
+                    )))
                 ),
                 tf.train.LoggingTensorHook(
-                    tensors={
-                        name: tensor for name, tensor in self.tensors.items()
-                        if tensor.shape.ndims == 0
-                    },
+                    tensors=dict(
+                        global_step=tf.train.get_global_step(),
+                        discriminator_loss=self.discriminator_loss,
+                        generator_loss=self.generator_loss
+                    ),
                     every_n_iter=log_tensor_steps,
                 ),
                 tf.train.StopAtStepHook(
@@ -125,19 +134,36 @@ class GAN(object):
         ) as session:
 
             while not session.should_stop():
-                for name, operation in self.operations.items():
-                    session.run(
-                        fetches=operation,
-                        feed_dict={self.placeholders.training: True}
-                    )
+                session.run(self.discriminator_train_op, feed_dict={self.training: True})
+                session.run(self.generator_train_op, feed_dict={self.training: True})
 
     def evaluate(self, model_dir, config):
 
-        inception = hub.Module("https://tfhub.dev/google/imagenet/inception_v3/feature_vector/1")
-        image_size = hub.get_expected_image_size(inception)
+        real_features = tf.contrib.gan.eval.run_inception(
+            images=tf.contrib.gan.eval.preprocess_image(self.real_images),
+            output_tensor="pool_3:0"
+        )
+        fake_features = tf.contrib.gan.eval.run_inception(
+            images=tf.contrib.gan.eval.preprocess_image(self.fake_images1),
+            output_tensor="pool_3:0"
+        )
 
-        real_features = inception(tf.image.resize_images(self.tensors.real_images, image_size))
-        fake_features = inception(tf.image.resize_images(self.tensors.fake_images1, image_size))
+        def generator():
+            while True:
+                try:
+                    yield session.run(
+                        fetches=[real_features, fake_features],
+                        feed_dict={self.training: False}
+                    )
+                except tf.errors.OutOfRangeError:
+                    break
+
+        all_real_features = tf.placeholder(tf.float32)
+        all_fake_features = tf.placeholder(tf.float32)
+        frechet_inception_distance = tf.contrib.gan.eval.frechet_classifier_distance_from_activations(
+            real_activations=all_real_features,
+            generated_activations=all_fake_features
+        )
 
         with tf.train.SingularMonitoredSession(
             scaffold=tf.train.Scaffold(
@@ -151,15 +177,11 @@ class GAN(object):
             config=config
         ) as session:
 
-            def generator():
-                while True:
-                    try:
-                        yield session.run(
-                            fetches=[real_features, fake_features],
-                            feed_dict={self.placeholders.training: False}
-                        )
-                    except tf.errors.OutOfRangeError:
-                        break
-
-            frechet_inception_distance = metrics.frechet_inception_distance(*map(np.concatenate, zip(*generator())))
+            frechet_inception_distance = session.run(
+                fetches=frechet_inception_distance,
+                feed_dict=dict(zip(
+                    [all_real_features, all_fake_features],
+                    map(np.concatenate, zip(*generator()))
+                ))
+            )
             tf.logging.info("frechet_inception_distance: {}".format(frechet_inception_distance))

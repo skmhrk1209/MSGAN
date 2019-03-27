@@ -36,7 +36,10 @@ def cifar10_input_fn(filenames, batch_size, num_epochs, shuffle):
             reshuffle_each_iteration=True
         )
     dataset = dataset.repeat(count=num_epochs)
-    dataset = dataset.batch(batch_size=batch_size)
+    dataset = dataset.batch(
+        batch_size=batch_size,
+        drop_remainder=True
+    )
     dataset = dataset.map(
         map_func=preprocess,
         num_parallel_calls=os.cpu_count()
