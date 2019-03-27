@@ -84,9 +84,3 @@ with tf.Graph().as_default():
             model_dir=args.model_dir,
             config=config
         )
-
-    if args.generate:
-        gan.generate(
-            model_dir=args.model_dir,
-            config=config
-        )
