@@ -11,10 +11,6 @@ def cifar10_input_fn(filenames, batch_size, num_epochs, shuffle):
             dict = pickle.load(file, encoding="bytes")
         return dict
 
-    dicts = [unpickle(filename) for filename in filenames]
-    images = np.concatenate([dict[b"data"] for dict in dicts])
-    labels = np.concatenate([dict[b"labels"] for dict in dicts])
-
     def preprocess(images, labels):
 
         def normalize(inputs, mean, std):
@@ -28,6 +24,10 @@ def cifar10_input_fn(filenames, batch_size, num_epochs, shuffle):
         labels = tf.one_hot(labels, 10)
 
         return images, labels
+
+    dicts = [unpickle(filename) for filename in filenames]
+    images = np.concatenate([dict[b"data"] for dict in dicts])
+    labels = np.concatenate([dict[b"labels"] for dict in dicts])
 
     dataset = tf.data.Dataset.from_tensor_slices((images, labels))
     if shuffle:

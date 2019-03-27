@@ -1,7 +1,6 @@
 import tensorflow as tf
 import numpy as np
-import skimage
-import pathlib
+import metrics
 
 
 class GAN(object):
@@ -98,16 +97,16 @@ class GAN(object):
                     save_steps=save_summary_steps,
                     summary_op=tf.summary.merge(list(map(
                         lambda name_tensor: tf.summary.scalar(*name_tensor), dict(
-                            discriminator_loss=self.discriminator_loss,
-                            generator_loss=self.generator_loss
+                            generator_loss=self.generator_loss,
+                            discriminator_loss=self.discriminator_loss
                         ).items()
                     )))
                 ),
                 tf.train.LoggingTensorHook(
                     tensors=dict(
                         global_step=tf.train.get_global_step(),
-                        discriminator_loss=self.discriminator_loss,
-                        generator_loss=self.generator_loss
+                        generator_loss=self.generator_loss,
+                        discriminator_loss=self.discriminator_loss
                     ),
                     every_n_iter=log_tensor_steps,
                 ),
@@ -121,15 +120,16 @@ class GAN(object):
                 session.run(self.discriminator_train_op, feed_dict={self.training: True})
                 session.run(self.generator_train_op, feed_dict={self.training: True})
 
-    def generate(self, model_dir, data_dir, config):
+    def evaluate(self, model_dir, config):
 
-        real_data_dir = pathlib.Path(data_dir) / "reals"
-        fake_data_dir = pathlib.Path(data_dir) / "fakes"
-
-        if not real_data_dir.exists():
-            real_data_dir.mkdir(parents=True, exist_ok=True)
-        if not fake_data_dir.exists():
-            fake_data_dir.mkdir(parents=True, exist_ok=True)
+        real_features = tf.contrib.gan.eval.run_inception(
+            images=tf.contrib.gan.eval.preprocess_image(self.real_images),
+            output_tensor="pool_3:0"
+        )
+        fake_features = tf.contrib.gan.eval.run_inception(
+            images=tf.contrib.gan.eval.preprocess_image(self.fake_images),
+            output_tensor="pool_3:0"
+        )
 
         with tf.train.SingularMonitoredSession(
             scaffold=tf.train.Scaffold(
@@ -143,20 +143,15 @@ class GAN(object):
             config=config
         ) as session:
 
-            def unnormalize(inputs, mean, std):
-                return inputs * std + mean
-
             def generator():
-
                 while True:
                     try:
                         yield session.run(
-                            fetches=[self.real_images, self.fake_images],
+                            fetches=[self.real_features, self.fake_features],
                             feed_dict={self.training: False}
                         )
                     except tf.errors.OutOfRangeError:
                         break
 
-            for i, (real_image, fake_image) in enumerate(zip(*map(np.concatenate, zip(*generator())))):
-                skimage.io.imsave(real_data_dir / "{}.jpg".format(i), unnormalize(real_image, 0.5, 0.5))
-                skimage.io.imsave(fake_data_dir / "{}.jpg".format(i), unnormalize(fake_image, 0.5, 0.5))
+            frechet_inception_distance = metrics.frechet_inception_distance(*map(np.concatenate, zip(*generator())))
+            tf.logging.info("frechet_inception_distance: {}".format(frechet_inception_distance))
