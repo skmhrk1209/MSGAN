@@ -62,6 +62,13 @@ with tf.Graph().as_default():
         )
     )
 
+    config = tf.ConfigProto(
+        gpu_options=tf.GPUOptions(
+            visible_device_list=args.gpu,
+            allow_growth=True
+        )
+    )
+
     if args.train:
         gan.train(
             model_dir=args.model_dir,
@@ -69,32 +76,17 @@ with tf.Graph().as_default():
             save_checkpoint_steps=10000,
             save_summary_steps=1000,
             log_tensor_steps=1000,
-            config=tf.ConfigProto(
-                gpu_options=tf.GPUOptions(
-                    visible_device_list=args.gpu,
-                    allow_growth=True
-                )
-            )
+            config=config
         )
 
     if args.evaluate:
         gan.evaluate(
             model_dir=args.model_dir,
-            config=tf.ConfigProto(
-                gpu_options=tf.GPUOptions(
-                    visible_device_list=args.gpu,
-                    allow_growth=True
-                )
-            )
+            config=config
         )
 
     if args.generate:
         gan.generate(
             model_dir=args.model_dir,
-            config=tf.ConfigProto(
-                gpu_options=tf.GPUOptions(
-                    visible_device_list=args.gpu,
-                    allow_growth=True
-                )
-            )
+            config=config
         )
