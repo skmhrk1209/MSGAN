@@ -147,7 +147,7 @@ class GAN(object):
                 while True:
                     try:
                         yield session.run(
-                            fetches=[self.real_features, self.fake_features],
+                            fetches=[real_features, fake_features],
                             feed_dict={self.training: False}
                         )
                     except tf.errors.OutOfRangeError:
