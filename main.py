@@ -2,6 +2,7 @@
 # TensorFlow implementation of MSGAN
 # [Mode Seeking Generative Adversarial Networks for Diverse Image Synthesis]
 # (https://arxiv.org/pdf/1903.05628v1.pdf)
+# frechet_inception_distance: 21.922094156190198
 #=================================================================================================#
 
 import tensorflow as tf
