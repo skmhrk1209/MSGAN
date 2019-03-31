@@ -2,7 +2,6 @@ import tensorflow as tf
 import numpy as np
 import pickle
 import os
-from utils import Struct
 
 
 def cifar10_input_fn(filenames, batch_size, num_epochs, shuffle):
